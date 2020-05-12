@@ -8,7 +8,7 @@ require (
 	github.com/gopherjs/gopherjs v0.0.0-20181103185306-d547d1d9531e // indirect
 	github.com/gregjones/httpcache v0.0.0-20181110185634-c63ab54fda8f // indirect
 	github.com/imdario/mergo v0.3.6 // indirect
-	github.com/jteeuwen/go-bindata v0.0.0-20151023091102-a0ff2567cfb7
+	github.com/jteeuwen/go-bindata/v3/v3 v3.0.7
 	github.com/karrick/godirwalk v1.8.0 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/onsi/ginkgo v1.10.1
