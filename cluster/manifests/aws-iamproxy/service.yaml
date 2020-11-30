@@ -1,0 +1,14 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: aws-iamproxy
+  namespace: kube-system
+  labels:
+    application: aws-iamproxy
+spec:
+  selector:
+    application: aws-iamproxy
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP

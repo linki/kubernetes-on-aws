@@ -67,11 +67,8 @@ data:
         cluster: {{ .Cluster.Alias }}
     rule_files:
     - "prometheus.rules.yaml"
-{{ if ne .ConfigItems.prometheus_remote_write "disabled" }}
-    remote_write:
-    - url: {{ .ConfigItems.prometheus_remote_write }}
-      bearer_token_file: /meta/credentials/remote-write-token-secret
-{{ end }}
+    remoteWrite:
+    - url: http://aws-iamproxy.kube-system.svc.cluster.local:80/workspaces/ws-da4509e3-8d11-4882-994f-519a21759430/api/v1/remote_write
     scrape_configs:
     # scrape from kube-apiserver pods
     - job_name: 'kubernetes-apiservers'

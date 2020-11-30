@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aws-iamproxy
+  namespace: kube-system
+  labels:
+    application: aws-iamproxy
+    version: "0.0.1"
+spec:
+  selector:
+    matchLabels:
+      application: aws-iamproxy
+  template:
+    metadata:
+      labels:
+        application: aws-iamproxy
+        version: "0.0.1"
+    spec:
+      serviceAccountName: aws-iamproxy
+      containers:
+      - name: aws-iamproxy
+        image: mchene/aws-sigv4-proxy:0.0.1
+        args:
+        - --name
+        - aps
+        - --region
+        - eu-central-1
+        - --host
+        - aps-workspaces-gamma.eu-central-1.amazonaws.com
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi

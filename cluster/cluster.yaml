@@ -863,6 +863,65 @@ Resources:
           PolicyName: root
       RoleName: "{{.Cluster.LocalID}}-app-external-dns"
     Type: 'AWS::IAM::Role'
+  AWSIAMProxyIAMRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: "arn:aws:iam::{{ .Cluster.InfrastructureAccount | getAWSAccountID }}:oidc-provider/{{.Cluster.LocalID}}.{{.Values.hosted_zone}}"
+            Action:
+              - 'sts:AssumeRoleWithWebIdentity'
+            Condition:
+              StringLike:
+                "{{ .Cluster.LocalID }}.{{ .Values.hosted_zone }}:sub": "system:serviceaccount:kube-system:aws-iamproxy"
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+      Path: /
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                - aps:RemoteWrite
+                - aps:QueryMetrics
+                - aps:GetSeries
+                - aps:GetLabels
+                - aps:GetMetricMetadata
+                Effect: Allow
+                Resource: '*'
+            Version: 2012-10-17
+          PolicyName: root
+      RoleName: "{{.Cluster.LocalID}}-app-aws-iamproxy"
+    Type: 'AWS::IAM::Role'
+  StealfirePrivateLinkEndpoint:
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      ServiceName: "com.amazonaws.eu-central-1.aps-workspaces-gamma"
+      VpcEndpointType: Interface
+      SubnetIds:
+      {{ with $values := .Values }}
+      {{ range $az := $values.availability_zones }}
+      - "{{ index $values.subnets $az }}"
+      {{ end }}
+      {{ end }}
+      SecurityGroupIds:
+      - !Ref StealfirePrivateLinkSecurityGroup
+      VpcId: "{{.Cluster.ConfigItems.vpc_id}}"
+  StealfirePrivateLinkSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "PrivateLink endpoint for Stealfire access"
+      SecurityGroupIngress:
+      - FromPort: 0
+        CidrIp: "{{.Values.vpc_ipv4_cidr}}"
+        IpProtocol: "tcp"
+        ToPort: 65535
+      VpcId: "{{.Cluster.ConfigItems.vpc_id}}"
   IngressControllerIAMRole:
     Properties:
       AssumeRolePolicyDocument:
