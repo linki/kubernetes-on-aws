@@ -7,7 +7,7 @@ Metadata:
 Mappings:
   Images:
     eu-central-1:
-      MachineImage: '{{ .NodePool.ConfigItems.kuberuntu_image_v1_18 }}'
+      MachineImage: '{{ .NodePool.ConfigItems.kuberuntu_image_v1_19 }}'
 
 Resources:
   AutoScalingGroup:
@@ -56,6 +56,12 @@ Resources:
         CreditSpecification:
           CpuCredits: unlimited
 {{ end }}
+        BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            DeleteOnTermination: {{.NodePool.ConfigItems.ebs_root_volume_delete_on_termination}}
+            VolumeSize: {{.NodePool.ConfigItems.ebs_master_root_volume_size}}
+            VolumeType: gp3
         NetworkInterfaces:
         - DeviceIndex: 0
           AssociatePublicIpAddress: true

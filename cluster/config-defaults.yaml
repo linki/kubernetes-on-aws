@@ -9,30 +9,17 @@ autoscaling_utilization_threshold: "1.0"
 autoscaling_max_empty_bulk_delete: "10"
 autoscaling_scale_down_unneeded_time: "10m"
 
-# the cluster autoscaler release to use, options are 1_12 and 1_18.
-cluster_autoscaler_release: "1_18"
-
-# When true, enables the legacy behaviour for 1.18 where pools that are backed off
-# don't get reset to their pre-scale-out values. This basically means the ASGs
-# keep trying to get a node while CA already moves on to the next ASG.
-cluster_autoscaler_keep_backed_off_pools_scaled_up: "true"
-
 # How long to wait for pod eviction when scaling down.
-{{if eq .Environment "production"}}
-cluster_autoscaler_max_pod_eviction_time: "2m"
-cluster_autoscaler_disable_node_instances_cache: "false"
+{{if eq .Cluster.Environment "production"}}
+cluster_autoscaler_max_pod_eviction_time: "1h"
 {{else}}
 cluster_autoscaler_max_pod_eviction_time: "3h"
-cluster_autoscaler_disable_node_instances_cache: "true"
 {{end}}
-
-# defines which expander the autoscaler should use
-cluster_autoscaler_expander: highest-priority
 
 # ALB config created by kube-aws-ingress-controller
 kube_aws_ingress_controller_ssl_policy: "ELBSecurityPolicy-TLS-1-2-2017-01"
 kube_aws_ingress_controller_idle_timeout: "1m"
-{{if eq .Environment "e2e"}}
+{{if eq .Cluster.Environment "e2e"}}
 kube_aws_ingress_controller_deregistration_delay_timeout: "1m"
 {{else}}
 kube_aws_ingress_controller_deregistration_delay_timeout: "5m"
@@ -49,9 +36,10 @@ skipper_ingress_max_replicas: "180"
 skipper_ingress_min_replicas: "3"
 skipper_ingress_cpu: "1000m"
 skipper_ingress_memory: "1Gi"
-skipper_ingress_tracing_buffer: "8192"
+skipper_ingress_tracing_buffer: "32768"
 enable_dedicate_nodepool_skipper: "false"
-{{if eq .Environment "e2e"}}
+skipper_suppress_route_update_logs: "true"
+{{if eq .Cluster.Environment "e2e"}}
 skipper_topology_spread_enabled: "true"
 {{else}}
 skipper_topology_spread_enabled: "false"
@@ -75,9 +63,14 @@ skipper_read_timeout_server: "5m"
 skipper_write_timeout_server: "60s"
 
 # skipper redis settings
+enable_dedicate_nodepool_skipper_redis: "false"
 skipper_redis_replicas: 2
 skipper_redis_cpu: "100m"
-skipper_redis_memory: "100Mi"
+skipper_redis_memory: "512Mi"
+skipper_redis_dial_timeout: "25ms"
+skipper_redis_pool_timeout: "250ms"
+skipper_redis_read_timeout: "25ms"
+skipper_redis_write_timeout: "25ms"
 
 # skipper api GW features
 enable_apimonitoring: "true"                       # TODO(sszuecs): cleanup candidate to reduce amount of branches in deployment
@@ -87,12 +80,14 @@ enable_apimonitoring: "true"                       # TODO(sszuecs): cleanup cand
 # ingress.cluster.local addresses created by skipper.
 # enable_skipper_eastwest_dns only enables DNS and assumes users define the
 # ingress.cluster.local names explicitly on ingress/routegroup/stacksets
-{{if eq .Environment "production"}}
-enable_skipper_eastwest: "false"
+{{if eq .Cluster.Environment "production"}}
 enable_skipper_eastwest_dns: "false"
-{{else}}
 enable_skipper_eastwest: "false"
+enable_skipper_eastwest_range: "false"
+{{else}}
 enable_skipper_eastwest_dns: "true"
+enable_skipper_eastwest: "false"
+enable_skipper_eastwest_range: "true"
 {{end}}
 # enable temporay logging of ingress.cluster.local names
 # used to find services for which it's being used.
@@ -124,13 +119,10 @@ routegroups_validation: "enabled"
 # enable hostnames with port in host definition
 skipper_routegroup_enable_hostport: "false"
 
-# migrate from multi container to single container multi process skipper-ingress
-skipper_single_container_enabled: "true"
-
 # tokeninfo
 skipper_ingress_tokeninfo_cpu: "1000m"
 skipper_ingress_tokeninfo_memory: "512Mi"
-{{if eq .Environment "production"}}
+{{if eq .Cluster.Environment "production"}}
 tokeninfo_url: "http://127.0.0.1:9021/oauth2/tokeninfo"
 # production|bridge|disabled
 skipper_local_tokeninfo: "production"
@@ -140,8 +132,16 @@ tokeninfo_url: "" # can be set when local tokeninfo is disabled
 skipper_local_tokeninfo: "bridge"
 {{end}}
 
+# oauth2 UI login - grant flow
+{{if eq .Cluster.Environment "e2e"}}
+skipper_oauth2_ui_login: "false"
+skipper_ingress_encryption_key: ""
+{{else}}
+skipper_oauth2_ui_login: "true"
+{{end}}
+
 # Image Policy Webhook
-{{if eq .Environment "production"}}
+{{if eq .Cluster.Environment "production"}}
 image_policy: "trusted"
 {{else}}
 image_policy: "dev"
@@ -164,11 +164,7 @@ flannel_cpu: "25m"
 flannel_memory: "100Mi"
 
 # journald reader settings
-{{if eq .Environment "production"}}
-journald_reader_enabled: "false"
-{{else}}
 journald_reader_enabled: "true"
-{{end}}
 journald_reader_cpu: "1m"
 journald_reader_memory: "30Mi"
 
@@ -183,9 +179,18 @@ prometheus_cpu: "1000m"
 prometheus_mem: "4Gi"
 prometheus_mem_min: "2Gi"
 prometheus_cpu_min: "0"
-prometheus_remote_write: "disabled"
 prometheus_tsdb_retention_size: "disabled"
 prometheus_csi_ebs: "false"
+
+# Upstream defaults are too aggressive:
+# https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write
+prometheus_remote_write: "disabled"
+# Maximum time a sample will wait in buffer.
+prometheus_remote_batch_send_deadline: "30s"
+# Initial retry delay. Gets doubled for every retry.
+prometheus_remote_min_backoff: "3s"
+# Maximum retry delay.
+prometheus_remote_max_backoff: "10s"
 
 # regex defining labels to be dropped when scraping from kube-state-metrics
 # Simple workaround for: https://github.com/kubernetes/kube-state-metrics/issues/1115
@@ -208,12 +213,15 @@ kube_state_metrics_mem_min: "120Mi"
 kubernetes_lifecycle_metrics_mem_max: "4Gi"
 kubernetes_lifecycle_metrics_mem_min: "120Mi"
 
+kube_node_ready_controller_cpu: "50m"
+kube_node_ready_controller_memory: "200Mi"
+
 # Kubernetes Downscaler (for non-production clusters)
-{{if eq .Environment "test"}}
+{{if eq .Cluster.Environment "test"}}
 downscaler_default_uptime: "Mon-Fri 07:30-20:30 Europe/Berlin"
 downscaler_default_downtime: "never"
 downscaler_enabled: "true"
-{{else if eq .Environment "e2e"}}
+{{else if eq .Cluster.Environment "e2e"}}
 downscaler_default_uptime: "always"
 downscaler_default_downtime: "never"
 downscaler_enabled: "true"
@@ -224,14 +232,12 @@ downscaler_enabled: "false"
 {{end}}
 
 # HPA settings (defaults from https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/)
-horizontal_pod_autoscaler_downscale_delay: "5m0s"
 horizontal_pod_autoscaler_sync_period: "30s"
 horizontal_pod_autoscaler_tolerance: "0.1"
-horizontal_pod_autoscaler_upscale_delay: "3m0s"
 horizontal_pod_downscale_stabilization: "5m0s"
 
 # Cluster update settings
-{{if eq .Environment "production"}}
+{{if eq .Cluster.Environment "production"}}
 drain_grace_period: "6h"
 drain_min_pod_lifetime: "72h"
 drain_min_healthy_sibling_lifetime: "1h"
@@ -246,6 +252,8 @@ drain_min_unhealthy_sibling_lifetime: "1h"
 drain_force_evict_interval: "5m"
 node_update_prepare_replacement_node: "false" # don't wait for a replacement instance for on-demand pools in test clusters
 {{end}}
+# add NoSchedule taints to nodes being replaced
+decommission_node_no_schedule_taint: "true"
 
 # Teapot admission controller
 teapot_admission_controller_default_cpu_request: "25m"
@@ -258,28 +266,33 @@ teapot_admission_controller_deployment_default_max_surge: "5%"
 teapot_admission_controller_deployment_default_max_unavailable: "1"
 teapot_admission_controller_inject_aws_waiter: "true"
 teapot_admission_controller_parent_resource_hash: "true"
-teapot_admission_controller_postgresql_delete_protection_enabled: "false"
 
 ## Defaults are set per-cluster
 teapot_admission_controller_check_daemonset_resources: "true"
 teapot_admission_controller_daemonset_reserved_cpu: "8"
 teapot_admission_controller_daemonset_reserved_memory: "64Gi"
 
-{{if eq .Environment "production"}}
+{{if eq .Cluster.Environment "production"}}
 teapot_admission_controller_validate_application_label: "true"
 teapot_admission_controller_validate_pod_template_resources: "true"
 teapot_admission_controller_preemption_enabled: "true"
-{{else if eq .Environment "e2e"}}
+teapot_admission_controller_postgresql_delete_protection_enabled: "true"
+teapot_admission_controller_namespace_delete_protection_enabled: "true"
+{{else if eq .Cluster.Environment "e2e"}}
 teapot_admission_controller_validate_application_label: "false"
 teapot_admission_controller_validate_pod_template_resources: "false"
 teapot_admission_controller_preemption_enabled: "true"
+teapot_admission_controller_postgresql_delete_protection_enabled: "false"
+teapot_admission_controller_namespace_delete_protection_enabled: "false"
 {{else}}
 teapot_admission_controller_validate_application_label: "false"
 teapot_admission_controller_validate_pod_template_resources: "true"
 teapot_admission_controller_preemption_enabled: "false"
+teapot_admission_controller_postgresql_delete_protection_enabled: "false"
+teapot_admission_controller_namespace_delete_protection_enabled: "false"
 {{end}}
 
-{{if eq .Environment "e2e"}}
+{{if eq .Cluster.Environment "e2e"}}
 teapot_admission_controller_ignore_namespaces: "^kube-system|((downward-api|kubectl|projected|statefulset|pod-network|scope-selectors|resourcequota|limitrange)-.*)$"
 teapot_admission_controller_crd_ensure_no_resources_on_delete: "false"
 {{else}}
@@ -290,7 +303,7 @@ teapot_admission_controller_crd_ensure_no_resources_on_delete: "true"
 teapot_admission_controller_topology_spread: optin
 
 # etcd cluster
-{{if eq .Environment "production"}}
+{{if eq .Cluster.Environment "production"}}
 etcd_instance_count: "5"
 {{else}}
 etcd_instance_count: "3"
@@ -303,11 +316,17 @@ cluster_dns: "coredns"
 coredns_log_svc_names: "true"
 coredns_max_upstream_concurrency: 0 #0 means there is not concurrency limits
 
-kuberuntu_image_v1_18: {{ amiID "zalando-ubuntu-kubernetes-production-v1.18.10-master-129" "861068367966" }}
+# Kubernetes on Ubuntu AMI to use
+# note this configuration uses the [amiID][0] function. It returns the
+# AMI id given the image name and the Image AWS account owner.
+#
+# [0]: https://github.com/zalando-incubator/cluster-lifecycle-manager/blob/8a9bd1cb2d094038a9e23e646421f8146b48886a/provisioner/template.go#L116
+kuberuntu_image_v1_18: {{ amiID "zalando-ubuntu-kubernetes-production-v1.18.12-master-131" "861068367966" }}
+kuberuntu_image_v1_19: {{ amiID "zalando-ubuntu-kubernetes-production-v1.19.7-master-140" "861068367966"}}
 
 # Feature toggle for auditing events
 audit_pod_events: "true"
-{{if eq .Environment "production"}}
+{{if eq .Cluster.Environment "production"}}
 audittrail_url: "https://audittrail.cloud.zalando.com"
 {{else}}
 audittrail_url: ""
@@ -317,7 +336,7 @@ audittrail_root_account_role: ""
 # CIDR configuration for nodes and pods
 # Changing this will change the number of nodes and pods we can schedule in the
 # cluster: https://cloud.google.com/kubernetes-engine/docs/how-to/flexible-pod-cidr
-{{if eq .Environment "production"}}
+{{if eq .Cluster.Environment "production"}}
 node_cidr_mask_size: "25"
 {{else}}
 node_cidr_mask_size: "24"
@@ -410,10 +429,8 @@ enable_cdp_sa: "false"
 vm_dirty_background_bytes: "67108864"
 vm_dirty_bytes: "134217728"
 
-# Enable FeatureGate EndpointSlice
-enable_endpointslice: "false"
 # enable kube-proxy to use endpoint slice
-enable_endpointsliceproxying: "false"
+enable_endpointsliceproxying: "true"
 
 # Enable FeatureGate HPAScaleToZero
 enable_hpa_scale_to_zero: "true"
@@ -426,6 +443,14 @@ enable_ephemeral_containers: "false"
 # this flag can be switched between true and false
 # to ensure all secrets are encrypted/decrypted all secrets need to be rewritten after masters have been rolled
 enable_encryption: "true"
+
+# Enable the feature gate GenericEphemeralVolume
+# https://kubernetes.io/docs/concepts/storage/ephemeral-volumes/#generic-ephemeral-volumes
+enable_generic_ephemeral_volume: "false"
+
+# Enable the feature gate SetHostnameAsFQDN
+# https://v1-19.docs.kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-sethostnameasfqdn-field
+enable_hostname_as_fqdn: "false"
 
 # default ttl for kube janitor for resources build from PRs in namespaces matching .*-pr-.*
 kube_janitor_default_pr_ttl: "1w"  # 1 week
@@ -447,6 +472,7 @@ stackset_controller_mem_min: "120Mi"
 stackset_controller_mem_max: "4Gi"
 
 # EBS settings for the root volume
+ebs_master_root_volume_size: "50"
 ebs_root_volume_size: "50"
 ebs_root_volume_delete_on_termination: "true"
 
@@ -469,6 +495,27 @@ kubernetes_event_logger_enabled: "true"
 
 # enable/disable routegroup support for stackset
 stackset_routegroup_support_enabled: "true"
+# The ttl before an ingress source is deleted when replaced with another
+# one.
+# E.g. switching from RouteGroup to Ingress or vice versa.
+stackset_ingress_source_switch_ttl: "5m"
 
 # Enable/Disable profiling for Kubernetes components
 enable_control_plane_profiling: "false"
+
+# Enable use of Privileged PSP (running privileged pods) in non system namespaces.
+# TODO: remove once all clusters have been migrated away from privileged pods
+privileged_psp_enabled: "false"
+
+# Enable kube-node-ready-controller and node-not-ready taint
+#
+# Note: kube_node_ready_controller_enabled must be set to true AND rolled out
+# before kube_node_not_ready_taint_enabled is enabled, otherwise new nodes would
+# come up and never get ready during a rollout.
+{{if eq .Cluster.Environment "production"}}
+kube_node_ready_controller_enabled: "false"
+kube_node_not_ready_taint_enabled: "false"
+{{ else }}
+kube_node_ready_controller_enabled: "true"
+kube_node_not_ready_taint_enabled: "true"
+{{ end }}

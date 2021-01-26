@@ -40,13 +40,15 @@ spec:
   - SETPCAP
   - SETUID
   - SYS_CHROOT
+  - SYS_NICE
 ---
 apiVersion: policy/v1beta1
 kind: PodSecurityPolicy
 metadata:
   name: restricted
 spec:
-  allowPrivilegeEscalation: false
+  allowPrivilegeEscalation: true
+  defaultAllowPrivilegeEscalation: false
   fsGroup:
     rule: RunAsAny
   runAsUser:
@@ -83,3 +85,4 @@ spec:
   - SETPCAP
   - SETUID
   - SYS_CHROOT
+  - SYS_NICE

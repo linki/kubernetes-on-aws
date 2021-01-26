@@ -1,4 +1,3 @@
-{{ if eq .ConfigItems.skipper_single_container_enabled "true"}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,7 +5,7 @@ metadata:
   namespace: kube-system
   labels:
     application: skipper-ingress
-    version: v0.11.195
+    version: v0.13.14
     component: ingress
 spec:
   strategy:
@@ -20,7 +19,7 @@ spec:
     metadata:
       labels:
         application: skipper-ingress
-        version: v0.11.195
+        version: v0.13.14
         component: ingress
       annotations:
         kubernetes-log-watcher/scalyr-parser: |
@@ -52,7 +51,7 @@ spec:
       hostNetwork: true
       containers:
       - name: skipper-ingress
-        image: registry.opensource.zalan.do/teapot/skipper:v0.11.195-37
+        image: registry.opensource.zalan.do/teapot/skipper-internal:v0.13.14-87
         ports:
         - name: ingress-port
           containerPort: 9999
@@ -92,6 +91,10 @@ spec:
           - "-enable-kubernetes-east-west"
           - "-kubernetes-east-west-domain=.ingress.cluster.local"
 {{ end }}
+{{ if eq .ConfigItems.enable_skipper_eastwest_range "true"}}
+          - "-kubernetes-east-west-range-domains=ingress.cluster.local"
+          - "-kubernetes-east-west-range-predicates=ClientIP(\"10.2.0.0/16\", \"{{ .Values.vpc_ipv4_cidr }}\") && SourceFromLast(\"10.2.0.0/16\", \"{{ .Values.vpc_ipv4_cidr }}\")"
+{{ end }}
           - "-proxy-preserve-host"
           - "-serve-host-metrics"
           - "-disable-metrics-compat"
@@ -116,6 +119,10 @@ spec:
 {{ if ne .ConfigItems.skipper_redis_replicas "0" }}
           - "-enable-swarm"
           - "-swarm-redis-urls={{ indexedList "skipper-ingress-redis-$.skipper-ingress-redis.kube-system.svc.cluster.local:6379" (parseInt64 .ConfigItems.skipper_redis_replicas) }}"
+          - "-swarm-redis-dial-timeout={{ .ConfigItems.skipper_redis_dial_timeout }}"
+          - "-swarm-redis-pool-timeout={{ .ConfigItems.skipper_redis_pool_timeout }}"
+          - "-swarm-redis-read-timeout={{ .ConfigItems.skipper_redis_read_timeout }}"
+          - "-swarm-redis-write-timeout={{ .ConfigItems.skipper_redis_write_timeout }}"
 {{ end }}
           - "-histogram-metric-buckets=.0001,.00025,.0005,.00075,.001,.0025,.005,.0075,.01,.025,.05,.075,.1,.2,.3,.4,.5,.75,1,2,3,4,5,7,10,15,20,30,60,120,300,600"
           - >-
@@ -128,7 +135,7 @@ spec:
             tag=application=skipper-ingress
             tag=account={{ .Cluster.Alias }}
             tag=cluster={{ .Cluster.Alias }}
-            tag=artifact=registry.opensource.zalan.do/teapot/skipper:v0.11.195
+            tag=artifact=registry.opensource.zalan.do/teapot/skipper:v0.13.14
             grpc-max-msg-size={{ .ConfigItems.skipper_ingress_lightstep_grpc_max_msg_size }}
             max-period={{ .ConfigItems.skipper_ingress_lightstep_max_period }}
             min-period={{ .ConfigItems.skipper_ingress_lightstep_min_period }}
@@ -148,7 +155,7 @@ spec:
           - "-read-timeout-server={{ .ConfigItems.skipper_read_timeout_server }}"
           - "-write-timeout-server={{ .ConfigItems.skipper_write_timeout_server }}"
           - '-default-filters-prepend={{ .ConfigItems.skipper_default_filters }}'
-          - "-route-creation-metrics"
+          - "-suppress-route-update-logs={{ .ConfigItems.skipper_suppress_route_update_logs }}"
 {{ if eq .ConfigItems.skipper_enable_tcp_queue "true" }}
           - "-enable-tcp-queue"
           - "-expected-bytes-per-request={{ .ConfigItems.skipper_expected_bytes_per_request }}"
@@ -163,6 +170,18 @@ spec:
           - "-status-checks=http://127.0.0.1:9021/health"
 {{ else }}
           - "-oauth2-tokeninfo-url={{ .ConfigItems.tokeninfo_url }}"
+{{ end }}
+{{ if eq .ConfigItems.skipper_oauth2_ui_login "true" }}
+          - "-enable-oauth2-grant-flow"
+          - "-oauth2-auth-url={{ .ConfigItems.skipper_oauth2_auth_url }}"
+          - "-oauth2-token-url={{ .ConfigItems.skipper_oauth2_token_url }}"
+          - "-oauth2-secret-file=/etc/skipper/secret/encryption-key"
+          - "-oauth2-client-id-file=/etc/skipper/oauth/employee-client-id"
+          - "-oauth2-client-secret-file=/etc/skipper/oauth/employee-client-secret"
+          - "-credentials-paths=/etc/skipper/secret,/etc/skipper/oauth"
+          - "-credentials-update-interval=1m"
+          - "-oauth2-token-cookie-name={{.ConfigItems.skipper_oauth2_cookie_name }}"
+          - "-oauth2-callback-path={{ .ConfigItems.skipper_oauth2_redirect_url }}"
 {{ end }}
         resources:
           limits:
@@ -209,38 +228,44 @@ spec:
           readOnlyRootFilesystem: true
           runAsNonRoot: true
           runAsUser: 1000
-{{ if and (eq .ConfigItems.skipper_local_tokeninfo "bridge") (eq .ConfigItems.enable_apimonitoring "true")}}
         volumeMounts:
+{{ if eq .ConfigItems.skipper_local_tokeninfo "bridge"}}
           - name: routes
             mountPath: /etc/routes
-          - name: filters
-            mountPath: /etc/config/default-filters
-{{ else if eq .ConfigItems.skipper_local_tokeninfo "bridge"}}
-        volumeMounts:
-          - name: routes
-            mountPath: /etc/routes
-{{ else if eq .ConfigItems.enable_apimonitoring "true"}}
-        volumeMounts:
+{{ end }}
+{{ if eq .ConfigItems.enable_apimonitoring "true"}}
           - name: filters
             mountPath: /etc/config/default-filters
 {{ end }}
+{{ if eq .ConfigItems.skipper_oauth2_ui_login "true"}}
+          - name: oauth2
+            mountPath: /etc/skipper/oauth
+            readOnly: true
+          - name: encryption-key
+            mountPath: /etc/skipper/secret
+            readOnly: true
+{{ end }}
       securityContext:
         fsGroup: 1000
-{{ if and (eq .ConfigItems.skipper_local_tokeninfo "bridge") (eq .ConfigItems.enable_apimonitoring "true")}}
       volumes:
-        - name: filters
-          configMap:
-            name: skipper-default-filters
-            optional: true
+{{ if eq .ConfigItems.skipper_local_tokeninfo "bridge"}}
         - name: routes
           configMap:
             name: sandbox-tokeninfo-bridge-conf
-{{ else if eq .ConfigItems.enable_apimonitoring "true"}}
-      volumes:
+{{ end }}
+{{ if eq .ConfigItems.enable_apimonitoring "true"}}
         - name: filters
           configMap:
             name: skipper-default-filters
             optional: true
+{{ end }}
+{{ if eq .ConfigItems.skipper_oauth2_ui_login "true"}}
+        - name: oauth2
+          secret:
+            secretName: skipper-ingress-platform-credentials
+        - name: encryption-key
+          secret:
+            secretName: skipper-ingress
 {{ end }}
 {{ if eq .ConfigItems.enable_dedicate_nodepool_skipper "true"}}
       nodeSelector:
@@ -249,5 +274,4 @@ spec:
       - effect: NoSchedule
         key: dedicated
         value: skipper-ingress
-{{ end }}
 {{ end }}

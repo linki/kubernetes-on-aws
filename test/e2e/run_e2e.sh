@@ -33,11 +33,6 @@ esac
 
 E2E_SKIP_CLUSTER_UPDATE="${E2E_SKIP_CLUSTER_UPDATE:-"false"}"
 
-# fetch internal configuration values
-kubectl --namespace default get configmap teapot-kubernetes-e2e-config -o jsonpath='{.data.internal_config\.sh}' > internal_config.sh
-# shellcheck disable=SC1091
-source internal_config.sh
-
 # variables set for making it possible to run script locally
 CDP_BUILD_VERSION="${CDP_BUILD_VERSION:-"local-1"}"
 CDP_TARGET_REPOSITORY="${CDP_TARGET_REPOSITORY:-"github.com/zalando-incubator/kubernetes-on-aws"}"
@@ -49,9 +44,12 @@ export CLUSTER_ALIAS="${CLUSTER_ALIAS:-"teapot-e2e"}"
 export LOCAL_ID="${LOCAL_ID:-"e2e-${CDP_BUILD_VERSION}"}"
 export API_SERVER_URL="https://${LOCAL_ID}.${HOSTED_ZONE}"
 export INFRASTRUCTURE_ACCOUNT="aws:${AWS_ACCOUNT}"
-export ETCD_ENDPOINTS="${ETCD_ENDPOINTS:-"http://etcd-server.etcd.${HOSTED_ZONE}:2379"}"
 export CLUSTER_ID="${INFRASTRUCTURE_ACCOUNT}:${REGION}:${LOCAL_ID}"
 export WORKER_SHARED_SECRET="${WORKER_SHARED_SECRET:-"$(pwgen 30 -n1)"}"
+
+# Generate a new key for this E2E run
+SERVICE_ACCOUNT_PRIVATE_KEY="$(openssl genrsa | base64 | tr -d '\n')"
+export SERVICE_ACCOUNT_PRIVATE_KEY
 
 # create kubeconfig
 cat >kubeconfig <<EOF
@@ -99,12 +97,13 @@ if [ "$create_cluster" = true ]; then
         # generate cluster.yaml
         # call the cluster_config.sh from base git checkout if possible
         if [ -f "$BASE_CFG_PATH/test/e2e/cluster_config.sh" ]; then
-            "./$BASE_CFG_PATH/test/e2e/cluster_config.sh" \
-            "${CDP_TARGET_COMMIT_ID}" "requested" > base_cluster.yaml
+            "./$BASE_CFG_PATH/test/e2e/cluster_config.sh" "${CDP_TARGET_COMMIT_ID}" "requested" > base_cluster.yaml
         else
-            "./cluster_config.sh" "${CDP_TARGET_COMMIT_ID}" \
-            "requested" > base_cluster.yaml
+            "./cluster_config.sh" "${CDP_TARGET_COMMIT_ID}" "requested" > base_cluster.yaml
         fi
+
+        # generate the cluster certificates
+        aws-account-creator refresh-certificates --registry-file base_cluster.yaml --create-ca
 
         # Create cluster
         clm provision \
@@ -116,6 +115,14 @@ if [ "$create_cluster" = true ]; then
 
     # generate updated clusters.yaml
     "./cluster_config.sh" "${CDP_HEAD_COMMIT_ID}" "ready" > head_cluster.yaml
+
+    # either copy the certificates from the already created cluster or regenerate them from scratch
+    if [ -f base_cluster.yaml ]; then
+      ./copy-certificates.py base_cluster.yaml head_cluster.yaml
+    else
+      aws-account-creator refresh-certificates --registry-file head_cluster.yaml --create-ca
+    fi
+
     # Update cluster
     clm provision \
         --token="${WORKER_SHARED_SECRET}" \
@@ -131,12 +138,7 @@ fi
 if [ "$e2e" = true ]; then
     echo "Running e2e against cluster ${CLUSTER_ID}: ${API_SERVER_URL}"
     # disable cluster downscaling before running e2e
-    "./cluster_config.sh" "${CDP_HEAD_COMMIT_ID}" "ready" "false" > cluster.yaml
-    clm provision \
-        --token="${WORKER_SHARED_SECRET}" \
-        --directory="$(pwd)/../.." \
-        --debug \
-        --registry=cluster.yaml
+    ./toggle-scaledown.py disable
 
     export S3_AWS_IAM_BUCKET="zalando-e2e-test-${AWS_ACCOUNT}-${LOCAL_ID}"
     export AWS_IAM_ROLE="${LOCAL_ID}-e2e-aws-iam-test"
@@ -164,12 +166,18 @@ if [ "$e2e" = true ]; then
     #   https://github.com/kubernetes/kubernetes/blob/224be7bdce5a9dd0c2fd0d46b83865648e2fe0ba/test/e2e/network/service.go#L1037
     # * "[Fail] [sig-network] Services [It] should be able to create a functioning NodePort service [Conformance]"
     #   https://github.com/kubernetes/kubernetes/blob/224be7bdce5a9dd0c2fd0d46b83865648e2fe0ba/test/e2e/network/service.go#L551
+    # * "[Fail] [sig-network] Services [It] should have session affinity work for NodePort service [LinuxOnly] [Conformance]"
+    #   https://github.com/kubernetes/kubernetes/blob/v1.19.2/test/e2e/network/service.go#L1813
+    # * "[Fail] [sig-network] Services [It] should have session affinity timeout work for NodePort service [LinuxOnly] [Conformance]"
+    #   https://github.com/kubernetes/kubernetes/blob/v1.19.2/test/e2e/network/service.go#L2522
+    # * "[Fail] [sig-network] Services [It] should be able to switch session affinity for NodePort service [LinuxOnly] [Conformance]"
+    #   https://github.com/kubernetes/kubernetes/blob/v1.19.2/test/e2e/network/service.go#L2538
     set +e
 
     mkdir -p junit_reports
     ginkgo -nodes=25 -flakeAttempts=2 \
         -focus="(\[Conformance\]|\[StatefulSetBasic\]|\[Feature:StatefulSet\]\s\[Slow\].*mysql|\[Zalando\])" \
-        -skip="(should.resolve.DNS.of.partial.qualified.names.for.the.cluster|should.resolve.DNS.of.partial.qualified.names.for.services|should.be.able.to.change.the.type.from.ExternalName.to.NodePort|should.be.able.to.create.a.functioning.NodePort.service|\[Serial\]|Should.create.gradual.traffic.routes|Should.create.blue-green.routes)" \
+        -skip="(should.resolve.DNS.of.partial.qualified.names.for.the.cluster|should.resolve.DNS.of.partial.qualified.names.for.services|should.be.able.to.change.the.type.from.ExternalName.to.NodePort|should.be.able.to.create.a.functioning.NodePort.service|should.have.session.affinity.work.for.NodePort.service|should.have.session.affinity.timeout.work.for.NodePort.service|should.be.able.to.switch.session.affinity.for.NodePort.service|\[Serial\]|Should.create.gradual.traffic.routes|Should.create.blue-green.routes)" \
         "e2e.test" -- -delete-namespace-on-failure=false -non-blocking-taints=node.kubernetes.io/role,nvidia.com/gpu -report-dir=junit_reports
     TEST_RESULT="$?"
 
@@ -197,16 +205,7 @@ if [ "$e2e" = true ]; then
     fi
 
     # enable cluster downscaling after running e2e
-    "./cluster_config.sh" "${CDP_HEAD_COMMIT_ID}" "ready" "true" > cluster_downscaling_enabled.yaml
-    clm provision \
-        --token="${WORKER_SHARED_SECRET}" \
-        --directory="$(pwd)/../.." \
-        --debug \
-        --registry=cluster_downscaling_enabled.yaml > clm.log
-    clm_exit="$?"
-    if [ "$clm_exit" -gt 0 ]; then
-        cat clm.log
-    fi
+    ./toggle-scaledown.py enable
 
     exit "$TEST_RESULT"
 fi
@@ -214,7 +213,7 @@ fi
 if [ "$stackset_e2e" = true ]; then
     namespace="stackset-e2e-$(date +'%H%M%S')"
     kubectl create namespace "$namespace"
-    E2E_NAMESPACE="${namespace}" ./stackset-e2e -test.parallel 64
+    E2E_NAMESPACE="${namespace}" ./stackset-e2e -test.parallel 20
 fi
 
 if [ "$decommission_cluster" = true ]; then
