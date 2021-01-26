@@ -875,7 +875,7 @@ Resources:
               - 'sts:AssumeRoleWithWebIdentity'
             Condition:
               StringLike:
-                "{{ .Cluster.LocalID }}.{{ .Values.hosted_zone }}:sub": "system:serviceaccount:kube-system:aws-iamproxy"
+                "{{ .Cluster.LocalID }}.{{ .Values.hosted_zone }}:sub": "system:serviceaccount:kube-system:prometheus"
           - Action:
               - 'sts:AssumeRole'
             Effect: Allow
@@ -896,32 +896,8 @@ Resources:
                 Resource: '*'
             Version: 2012-10-17
           PolicyName: root
-      RoleName: "{{.Cluster.LocalID}}-app-aws-iamproxy"
+      RoleName: "{{.Cluster.LocalID}}-prometheus"
     Type: 'AWS::IAM::Role'
-  StealfirePrivateLinkEndpoint:
-    Type: "AWS::EC2::VPCEndpoint"
-    Properties:
-      ServiceName: "com.amazonaws.eu-central-1.aps-workspaces-gamma"
-      VpcEndpointType: Interface
-      SubnetIds:
-      {{ with $values := .Values }}
-      {{ range $az := $values.availability_zones }}
-      - "{{ index $values.subnets $az }}"
-      {{ end }}
-      {{ end }}
-      SecurityGroupIds:
-      - !Ref StealfirePrivateLinkSecurityGroup
-      VpcId: "{{.Cluster.ConfigItems.vpc_id}}"
-  StealfirePrivateLinkSecurityGroup:
-    Type: "AWS::EC2::SecurityGroup"
-    Properties:
-      GroupDescription: "PrivateLink endpoint for Stealfire access"
-      SecurityGroupIngress:
-      - FromPort: 0
-        CidrIp: "{{.Values.vpc_ipv4_cidr}}"
-        IpProtocol: "tcp"
-        ToPort: 65535
-      VpcId: "{{.Cluster.ConfigItems.vpc_id}}"
   IngressControllerIAMRole:
     Properties:
       AssumeRolePolicyDocument:

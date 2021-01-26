@@ -55,6 +55,27 @@ spec:
         - name: prometheus-storage-volume
           mountPath: /prometheus
       containers:
+      - name: aws-iamproxy
+        image: public.ecr.aws/aws-observability/aws-sigv4-proxy:1.0
+        args:
+        - --name
+        - aps
+        - --region
+        - eu-central-1
+        - --host
+        - aps-workspaces.eu-central-1.amazonaws.com
+        - --port
+        - :8005
+        ports:
+        - name: aws-sigv4-proxy
+          containerPort: 8005
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
       - name: prometheus
         image: registry.opensource.zalan.do/teapot/prometheus:v2.21.0
         args:
