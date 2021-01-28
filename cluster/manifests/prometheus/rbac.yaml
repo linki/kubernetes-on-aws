@@ -4,7 +4,7 @@ metadata:
   name: prometheus
   namespace: kube-system
   annotations:
-    iam.amazonaws.com/role: "{{ .LocalID }}-app-prometheus"
+    iam.amazonaws.com/role: arn:aws:iam::996739350447:role/app-prometheus
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

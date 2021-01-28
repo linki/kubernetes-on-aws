@@ -67,7 +67,7 @@ data:
         cluster: {{ .Cluster.Alias }}
     rule_files:
     - "prometheus.rules.yaml"
-    remoteWrite:
+    remote_write:
     - url: http://localhost:8005/workspaces/ws-bc57641f-78a8-41da-a61a-f49a199f8698/api/v1/remote_write
     scrape_configs:
     # scrape from kube-apiserver pods
