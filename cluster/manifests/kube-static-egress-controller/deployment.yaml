@@ -31,7 +31,7 @@ spec:
       serviceAccountName: kube-static-egress-controller
       containers:
       - name: controller
-        image: registry.opensource.zalan.do/teapot/kube-static-egress-controller:v0.2.1
+        image: registry.opensource.zalan.do/teapot/kube-static-egress-controller:v0.2.7
         args:
         - "--provider=aws"
 {{- range $subnet := stupsNATSubnets .Values.vpc_ipv4_cidr }}
