@@ -26,7 +26,7 @@ spec:
       serviceAccountName: metrics-server
       containers:
       - name: metrics-server
-        image: registry.opensource.zalan.do/teapot/metrics-server:v0.3.6
+        image: registry.opensource.zalan.do/teapot/metrics-server:v0.4.2
         resources:
           limits:
             cpu: "{{.ConfigItems.metrics_service_cpu}}"
