@@ -25,7 +25,7 @@ spec:
       serviceAccountName: pdb-controller
       containers:
       - name: pdb-controller
-        image: registry.opensource.zalan.do/teapot/pdb-controller:v0.0.15
+        image: registry.opensource.zalan.do/teapot/pdb-controller:v0.0.17
         args:
         - --debug
         {{ if or (index .ConfigItems "pdb_non_ready_ttl") (eq .Environment "test") }}
