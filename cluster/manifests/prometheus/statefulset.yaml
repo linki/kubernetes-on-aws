@@ -57,7 +57,7 @@ spec:
           mountPath: /prometheus
       containers:
       - name: prometheus
-        image: registry.opensource.zalan.do/teapot/prometheus:v2.18.1
+        image: registry.opensource.zalan.do/teapot/prometheus:v2.26.0
         args:
         - "--config.file=/prometheus/prometheus.yaml"
         - "--storage.tsdb.path=/prometheus/"
