@@ -31,7 +31,7 @@ spec:
         effect: NoExecute
       hostNetwork: true
       containers:
-      - image: registry.opensource.zalan.do/teapot/kube2iam:0.10.7
+      - image: registry.opensource.zalan.do/teapot/kube2iam:0.10.11
         name: kube2iam
         args:
         - --auto-discover-base-arn
